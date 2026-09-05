@@ -1,0 +1,80 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+model PolicyDoc {
+  id             String          @id @default(cuid())
+  title          String
+  content        String
+  embedding      Unsupported("vector(1536)")?
+  agentDecisions AgentDecision[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  orders    Order[]
+  threads   Thread[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Order {
+  id             String          @id @default(cuid())
+  customerId     String
+  customer       Customer        @relation(fields: [customerId], references: [id])
+  status         String
+  total          Float
+  agentDecisions AgentDecision[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Thread {
+  id         String    @id @default(cuid())
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id])
+  status     String    @default("OPEN")
+  messages   Message[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Message {
+  id             String         @id @default(cuid())
+  threadId       String
+  thread         Thread         @relation(fields: [threadId], references: [id])
+  sender         String         // CUSTOMER, AGENT, HUMAN
+  content        String
+  agentDecision  AgentDecision?
+  createdAt      DateTime       @default(now())
+}
+
+model AgentDecision {
+  id          String     @id @default(cuid())
+  messageId   String     @unique
+  message     Message    @relation(fields: [messageId], references: [id])
+  
+  intent      String?
+  policyDocId String?
+  policyDoc   PolicyDoc? @relation(fields: [policyDocId], references: [id])
+  
+  orderId     String?
+  order       Order?     @relation(fields: [orderId], references: [id])
+  
+  action      String?
+  confidence  Float?
+  reasoning   String?
+  
+  createdAt   DateTime   @default(now())
+}
