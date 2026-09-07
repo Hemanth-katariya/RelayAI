@@ -7,13 +7,40 @@ export const inboxRouter = createTRPCRouter({
     return prisma.thread.findMany({
       include: {
         customer: true,
+        order: true,
         messages: {
+          orderBy: { createdAt: "asc" },
+        },
+        agentDecisions: {
           include: {
-            agentDecision: true,
-          }
+            retrievedPolicyDocs: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 1,
         },
       },
-      orderBy: { updatedAt: "desc" },
+      orderBy: { createdAt: "desc" },
     });
   }),
+
+  getThread: publicProcedure
+    .input(z.object({ threadId: z.string() }))
+    .query(async ({ input }) => {
+      return prisma.thread.findUnique({
+        where: { id: input.threadId },
+        include: {
+          customer: true,
+          order: true,
+          messages: {
+            orderBy: { createdAt: "asc" },
+          },
+          agentDecisions: {
+            include: {
+              retrievedPolicyDocs: true,
+            },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      });
+    }),
 });

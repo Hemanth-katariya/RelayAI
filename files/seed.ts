@@ -9,7 +9,7 @@
 // (embedPolicyDocs.ts) since they require an API call per doc — keeping
 // that out of the main seed keeps re-seeding fast and free during dev.
 
-import { prisma } from "../src/server/db";
+import { PrismaClient } from "@prisma/client";
 import { policyDocs } from "./data/policyDocs";
 import {
   seedCustomers,
@@ -17,6 +17,8 @@ import {
   generateFillerData,
 } from "./data/generateCustomersAndOrders";
 import { allMessages } from "./data/messages";
+
+const prisma = new PrismaClient();
 
 async function main() {
   console.log("Seeding PolicyDocs...");

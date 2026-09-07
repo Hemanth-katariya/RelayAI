@@ -3,12 +3,11 @@
 
 generator client {
   provider = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider   = "postgresql"
-  extensions = [vector]
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ---------------------------------------------------------------------------
@@ -25,7 +24,7 @@ model PolicyDoc {
   embedding Unsupported("vector(1536)")?
   createdAt DateTime @default(now())
 
-  agentDecisions AgentDecision[] @relation("AgentDecisionPolicyDoc")
+  agentDecisions AgentDecisionPolicyDoc[]
 }
 
 // ---------------------------------------------------------------------------
@@ -150,10 +149,17 @@ model AgentDecision {
   confidence        Float         // 0.0–1.0, self-reported by the LLM
 
   draftResponse     String        @db.Text
-  reasoning         String?       @db.Text
   autoExecuted      Boolean       @default(false)
   humanAction       HumanAction   @default(NOT_REQUIRED)
   finalResponse     String?       @db.Text
 
   createdAt         DateTime      @default(now())
+}
+
+// Explicit join model name for the many-to-many relation above
+model AgentDecisionPolicyDoc {
+  agentDecisionId String
+  policyDocId     String
+
+  @@id([agentDecisionId, policyDocId])
 }
