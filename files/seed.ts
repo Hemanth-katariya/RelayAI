@@ -10,13 +10,13 @@
 // that out of the main seed keeps re-seeding fast and free during dev.
 
 import { PrismaClient } from "@prisma/client";
-import { policyDocs } from "./data/policyDocs";
+import { policyDocs } from "./policyDocs";
 import {
   seedCustomers,
   seedOrders,
   generateFillerData,
-} from "./data/generateCustomersAndOrders";
-import { allMessages } from "./data/messages";
+} from "./generateCustomersAndOrders";
+import { allMessages } from "./messages";
 
 const prisma = new PrismaClient();
 

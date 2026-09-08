@@ -9,7 +9,7 @@ export async function classifyIntent(message: string) {
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
     try {
       const { object } = await generateObject({
-        model: google('gemini-1.5-pro'),
+        model: google('gemini-3.1-pro-preview'),
         schema: z.object({
           intent: z.enum([
             'refund_request',
@@ -47,6 +47,10 @@ export async function classifyIntent(message: string) {
   } else if (lower.includes('duplicate') || lower.includes('charged twice') || lower.includes('billing')) {
     intent = 'billing_dispute';
     sentiment = 'angry';
+    urgency = 'high';
+  } else if (lower.includes('damaged') || lower.includes('broken') || lower.includes('crushed') || lower.includes('dent')) {
+    intent = 'refund_request';
+    sentiment = 'frustrated';
     urgency = 'high';
   } else if (lower.includes('hasn\'t arrived') || lower.includes('has not arrived') || lower.includes('late') || lower.includes('delayed') || lower.includes('delivery')) {
     intent = 'delivery_complaint';
@@ -117,7 +121,7 @@ export async function decideAndDraft(message: string, policies: { id: string; ti
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
     try {
       const { object } = await generateObject({
-        model: google('gemini-1.5-pro'),
+        model: google('gemini-3.1-pro-preview'),
         schema: z.object({
           action: z.enum([
             'APPROVE_REFUND', 
@@ -243,7 +247,19 @@ export async function decideAndDraft(message: string, policies: { id: string; ti
     };
   }
 
-  // 7. Delayed order past SLA
+  // 7. Damaged item reported
+  if (lower.includes('damaged') || lower.includes('crushed') || lower.includes('dent')) {
+    return {
+      action: 'ESCALATE_TO_HUMAN' as const,
+      riskLevel: 'HIGH' as const,
+      reasoning: "Customer reported item arrived damaged. Escalate to human for partial/full refund review.",
+      draftResponse: "We are so sorry your item arrived damaged. A support agent will review the photos and issue a refund or replacement shortly.",
+      confidence: 0.95,
+      relevantPolicyId: 'refunds-damaged-items'
+    };
+  }
+
+  // 8. Delayed order past SLA
   if (order && order.status === 'DELAYED') {
     return {
       action: 'ESCALATE_TO_HUMAN' as const,
@@ -268,7 +284,7 @@ export async function decideAndDraft(message: string, policies: { id: string; ti
   }
 
   // 9. Refund window checks
-  if (order) {
+  if (order && (lower.includes('refund') || lower.includes('return') || lower.includes('money back'))) {
     if (order.refundEligible === false) {
       return {
         action: 'DENY_REFUND' as const,
@@ -290,13 +306,14 @@ export async function decideAndDraft(message: string, policies: { id: string; ti
     }
   }
 
+  // 10. Default fallback
   return {
     action: 'GENERAL_REPLY' as const,
     riskLevel: 'LOW' as const,
-    reasoning: "General customer inquiry.",
-    draftResponse: "Thank you for reaching out to customer support. How can we assist you today?",
-    confidence: 0.90,
-    relevantPolicyId: null
+    reasoning: "General inquiry that does not match specific rules. Providing a standard response.",
+    draftResponse: "Thank you for reaching out! A member of our team will review your inquiry and get back to you shortly.",
+    confidence: 0.85,
+    relevantPolicyId: policies.length > 0 ? policies[0].id : null
   };
 }
 
