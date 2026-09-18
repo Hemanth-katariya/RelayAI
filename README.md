@@ -350,10 +350,4 @@ Test cases include:
 
 ---
 
-## License
 
-This project was built for the **Jurin Hackathon**. All rights reserved.
-
----
-
-Built with love at IIT Patna
