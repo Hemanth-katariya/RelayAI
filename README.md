@@ -1,36 +1,359 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RelayAI — AI-Powered Customer Support Platform
+
+> **A production-ready Human-in-the-Loop (HITL) customer support agent** powered by Google Gemini, pgvector semantic search, and a deterministic policy rule engine — built with Next.js 16, tRPC, Prisma, and PostgreSQL.
+
+---
+
+## What is RelayAI?
+
+RelayAI is an intelligent customer support automation platform that processes incoming support tickets through a **multi-stage AI agent pipeline**. It classifies customer intent, retrieves relevant company policies via semantic vector search, cross-references order data, and either **auto-resolves** or **escalates** tickets to human agents — all in real time.
+
+The system ships with a full **Human-in-the-Loop (HITL) dashboard** where human agents can review AI decisions, approve/edit/reject draft responses, and maintain final control over high-risk cases.
+
+### Benchmark Results
+
+| Metric | Score | Target |
+|---|---|---|
+| **Intent Classification Accuracy** | **100%** (12/12) | >= 90% |
+| **Policy Retrieval Recall@3** | **100%** (12/12) | >= 85% |
+| **Action Decision Accuracy** | **100%** (12/12) | >= 95% |
+| **HITL Escalation Accuracy** | **100%** (12/12) | 100% |
+
+---
+
+## Architecture Overview
+
+```
+Customer Message
+       |
+       v
++--------------------------------------------------+
+|               Agent Pipeline                     |
+|                                                  |
+|  1. classifyIntent()   --> Intent, Sentiment,    |
+|     (Gemini / rule-based)    Urgency             |
+|                                                  |
+|  2. retrievePolicy()   --> Top-3 matching        |
+|     (pgvector cosine          policy docs        |
+|      similarity search)                          |
+|                                                  |
+|  3. lookUpOrder()      --> Customer order        |
+|     (PostgreSQL)              details            |
+|                                                  |
+|  4. decideAndDraft()   --> Action + Risk Level   |
+|     (Gemini / rule-based)    + Draft response   |
++--------------------------------------------------+
+       |
+       +--- confidence >= 0.8 & LOW risk  --> Auto-resolve + send response
+       |
+       +--- HIGH risk / LOW confidence  --> PENDING_HUMAN_REVIEW
+                                                   |
+                                                   v
+                                          HITL Dashboard
+                                    (Approve / Edit / Reject)
+```
+
+### Agent Actions
+
+| Action | Trigger |
+|---|---|
+| `APPROVE_REFUND` | Refund-eligible order within return window, or wrong item received |
+| `DENY_REFUND` | Past return window, final-sale/clearance item, already-cancelled order |
+| `RESEND_TRACKING_INFO` | Simple order status / tracking inquiry |
+| `ESCALATE_TO_HUMAN` | Order > $300, abusive/legal language, billing disputes, damaged items, delayed shipments |
+| `GENERAL_REPLY` | Pre-shipment cancellation requests, general inquiries |
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Framework** | [Next.js 16](https://nextjs.org/) (App Router) |
+| **Language** | TypeScript 5 |
+| **API Layer** | [tRPC v11](https://trpc.io/) + TanStack React Query v5 |
+| **Database** | PostgreSQL + [pgvector](https://github.com/pgvector/pgvector) extension |
+| **ORM** | [Prisma 7](https://www.prisma.io/) (with `@prisma/adapter-pg`) |
+| **AI / LLM** | [Google Gemini](https://ai.google.dev/) via Vercel AI SDK (`@ai-sdk/google`) |
+| **Vector Search** | `pgvector` — cosine similarity, 1536-dim embeddings |
+| **Styling** | Tailwind CSS v4 |
+| **Validation** | Zod v4 |
+
+---
+
+## Project Structure
+
+```
+relay-ai/
+├── prisma/
+│   ├── schema.prisma          # Database schema
+│   ├── seed.ts                # Seeds policy docs, customers, orders, and inbox messages
+│   ├── embedPolicyDocs.ts     # Generates 1536-dim embeddings and stores them via pgvector
+│   └── data/                  # Static seed datasets
+│
+├── src/
+│   ├── app/
+│   │   ├── page.tsx           # HITL Dashboard UI (main application)
+│   │   ├── layout.tsx         # Root layout + tRPC provider
+│   │   └── globals.css        # Global styles
+│   │
+│   ├── server/
+│   │   ├── db.ts              # Prisma client singleton
+│   │   ├── trpc.ts            # tRPC server initialization
+│   │   ├── agent/
+│   │   │   ├── pipeline.ts    # Core AI agent pipeline (classify -> retrieve -> lookup -> decide)
+│   │   │   └── vector.ts      # Offline feature-hashing embedding generator (1536-dim)
+│   │   └── routers/
+│   │       ├── _app.ts        # Root tRPC router
+│   │       ├── inbox.ts       # getThreads, getThread queries
+│   │       └── action.ts      # approveAction, editAction, rejectAction, runAgentOnThread
+│   │
+│   └── trpc/
+│       ├── client.ts          # tRPC client setup
+│       └── Provider.tsx       # TanStack Query + tRPC provider wrapper
+│
+├── evaluation_report.md       # Benchmark results across 12 edge-case test scenarios
+├── next.config.ts
+└── package.json
+```
+
+---
+
+## Database Schema
+
+### Core Models
+
+| Model | Purpose |
+|---|---|
+| `PolicyDoc` | Knowledge base for RAG (18 docs across refunds/shipping/returns/billing) |
+| `Customer` | Customer records with email and name |
+| `Order` | Orders with status (`DELIVERED`/`IN_TRANSIT`/`DELAYED`/`CANCELLED`/`RETURNED`) + refund eligibility |
+| `Thread` | Support conversations (`OPEN`/`PENDING_HUMAN_REVIEW`/`RESOLVED`/`ESCALATED`) |
+| `Message` | Individual messages (sender: `CUSTOMER`/`AGENT`/`HUMAN`) |
+| `AgentDecision` | Full audit log per pipeline run |
+
+### AgentDecision — The Audit Trail
+
+Every pipeline run produces one `AgentDecision` row containing:
+
+| Field | Description |
+|---|---|
+| `intent` | Classified customer intent (e.g., `refund_request`, `delivery_complaint`) |
+| `sentiment` | `neutral` / `frustrated` / `angry` |
+| `urgency` | `low` / `medium` / `high` |
+| `retrievedPolicyDocs` | Top-3 policy docs retrieved by vector search |
+| `orderLookupResult` | Serialized order snapshot used for decision |
+| `proposedAction` | One of the 5 allowed actions |
+| `riskLevel` | `LOW` / `HIGH` |
+| `confidence` | 0.0–1.0 self-reported by LLM |
+| `draftResponse` | AI-generated customer-facing message |
+| `reasoning` | Chain-of-thought explanation |
+| `autoExecuted` | Whether action was auto-resolved without human review |
+| `humanAction` | `APPROVED` / `EDITED` / `REJECTED` / `NOT_REQUIRED` |
+| `finalResponse` | Final response sent to the customer after human review |
+
+---
+
+## Agent Pipeline Deep Dive
+
+### Step 1 — Intent Classification
+
+Uses **Gemini** (with a keyword-based fallback) to classify messages into intents:
+
+| Intent | Example trigger |
+|---|---|
+| `refund_request` | "I want my money back for this broken item" |
+| `delivery_complaint` | "My order still hasn't arrived after 2 weeks" |
+| `billing_dispute` | "I was charged twice for the same order" |
+| `order_status_inquiry` | "Where is my package?" |
+| `wrong_item_received` | "I received the wrong product" |
+| `cancellation_request` | "I want to cancel my order" |
+| `general_complaint` | Catch-all for other grievances |
+
+### Step 2 — Policy Retrieval
+
+Generates a 1536-dimensional embedding of the customer message using a **deterministic feature-hashing algorithm** (no API key required), then queries PostgreSQL with the pgvector cosine distance operator:
+
+```sql
+SELECT id, title, category, content
+FROM "PolicyDoc"
+ORDER BY embedding <=> $queryVector::vector
+LIMIT 3;
+```
+
+Query expansion is applied for edge-case intents (e.g., "clearance" expands to include "non-refundable items final sale" terms).
+
+### Step 3 — Order Lookup
+
+Fetches the associated order from PostgreSQL, including `status`, `amount`, `refundEligible`, and delivery dates.
+
+### Step 4 — Decision & Draft
+
+Applies **business policy rules** via Gemini (with a deterministic fallback). Critical guardrails:
+
+| Guardrail | Rule |
+|---|---|
+| High-value order | Any order > $300 → `ESCALATE_TO_HUMAN` (HIGH risk) |
+| Legal threat | Mentions of "lawyer", "sue", "court", "consumer protection" → immediate escalation |
+| Abusive language | Hostile/offensive language detected → supervisor review |
+| Billing dispute | Duplicate charge / double billing → finance team escalation |
+| Final sale / cancelled | Non-refundable or already-cancelled → `DENY_REFUND` deterministically |
+
+### Auto-Resolution Logic
+
+```
+if (confidence < 0.80 OR action == ESCALATE_TO_HUMAN OR riskLevel == HIGH):
+    Thread status: PENDING_HUMAN_REVIEW  (awaits HITL action)
+else:
+    Thread status: RESOLVED  (agent response sent automatically)
+```
+
+---
+
+## HITL Dashboard
+
+The dashboard (at `/`) gives human agents a complete support inbox with:
+
+- **Thread list** with filter tabs: All / Pending / High Risk / Resolved
+- **Full-text search** across customer name, email, and subject
+- **Thread detail panel** with:
+  - Full conversation history (customer → agent → human messages)
+  - AI reasoning trail: intent, sentiment, urgency, confidence score
+  - Retrieved policy documents (expandable)
+  - Order snapshot (item, amount, status, refund eligibility)
+  - Proposed action with risk badge
+  - Editable draft response
+- **Action buttons**: Approve · Edit & Send · Reject (escalate) · Run Agent
+
+---
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- **Node.js** 20+
+- **PostgreSQL** with the `pgvector` extension enabled
+- **Google Gemini API Key** _(optional — the system works fully offline without one)_
+
+### 1. Clone & Install
+
+```bash
+git clone https://github.com/Hemanth-katariya/RelayAI.git
+cd RelayAI
+npm install
+```
+
+### 2. Configure Environment
+
+Create a `.env` file at the project root:
+
+```env
+# PostgreSQL connection string (required)
+DATABASE_URL="postgresql://user:password@localhost:5432/relayai"
+
+# Google Gemini API key (optional — fallback rule engine used if absent)
+GOOGLE_GENERATIVE_AI_API_KEY="your-api-key-here"
+```
+
+### 3. Set Up the Database
+
+```bash
+# Enable pgvector in your PostgreSQL database:
+# psql -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+# Push the Prisma schema to your database
+npx prisma db push
+
+# Seed policy docs, customers, orders, and messages
+npx prisma db seed
+```
+
+### 4. Generate Vector Embeddings
+
+```bash
+# Generate and store 1536-dim embeddings for all 18 policy documents
+npx tsx prisma/embedPolicyDocs.ts
+```
+
+### 5. Run the Development Server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to access the HITL Dashboard.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Offline Mode (No API Key Required)
 
-## Learn More
+RelayAI works **fully offline** without any paid API keys:
 
-To learn more about Next.js, take a look at the following resources:
+- **Intent classification** falls back to a deterministic keyword-based classifier
+- **Policy retrieval** uses a local feature-hashing embedding (1536-dim, L2-normalized) stored in pgvector
+- **Decision engine** falls back to a hand-coded policy rule engine matching company guidelines exactly
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+This makes the system free to run, deterministically testable, and resilient when the LLM is unavailable.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## Evaluation
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The pipeline was benchmarked against **12 handcrafted edge-case scenarios**. See [`evaluation_report.md`](./evaluation_report.md) for the full breakdown.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Test cases include:
+- Refund within and outside the 30-day return window
+- High-value order escalation (> $300)
+- Wrong item received (company fulfillment error)
+- Final-sale / clearance item denial
+- Duplicate charge billing dispute
+- Abusive customer language escalation
+- Legal threat detection and escalation
+- Pre-shipment cancellation handling
+- Delivery delay escalation
+- Tracking info request (auto-resolve)
+
+---
+
+## Available Scripts
+
+| Command | Description |
+|---|---|
+| `npm run dev` | Start the Next.js development server |
+| `npm run build` | Build the production bundle |
+| `npm run start` | Start the production server |
+| `npm run lint` | Run ESLint |
+| `npx prisma db push` | Sync schema to database |
+| `npx prisma db seed` | Seed the database with mock data |
+| `npx tsx prisma/embedPolicyDocs.ts` | Generate and store pgvector embeddings |
+| `npx prisma studio` | Open Prisma Studio to browse the database |
+
+---
+
+## API Reference (tRPC)
+
+### Queries
+
+| Procedure | Description |
+|---|---|
+| `inbox.getThreads` | Returns all threads with customer info, order, messages, and latest agent decision |
+| `inbox.getThread` | Returns a single thread by ID with full message and decision history |
+
+### Mutations
+
+| Procedure | Description |
+|---|---|
+| `action.runAgentOnThread` | Triggers the full agent pipeline on the latest customer message |
+| `action.approveAction` | Approves the AI draft, sends it, marks thread as RESOLVED |
+| `action.editAction` | Saves human-edited response, sends it, marks thread as RESOLVED |
+| `action.rejectAction` | Rejects the AI decision, escalates thread to ESCALATED status |
+
+---
+
+## License
+
+This project was built for the **Jurin Hackathon**. All rights reserved.
+
+---
+
+Built with love at IIT Patna
