@@ -25,22 +25,22 @@ The system ships with a full **Human-in-the-Loop (HITL) dashboard** where human 
 
 ```mermaid
 flowchart TD
-    Msg([Customer Message]) --> Pipeline
+    Msg(["Customer Message"]) --> Pipeline
 
-    subgraph Pipeline [Agent Pipeline]
+    subgraph Pipeline ["Agent Pipeline"]
         direction TB
-        Step1[<b>1. classifyIntent()</b><br/><i>Gemini / Rule-based</i>] --> |"Intent, Sentiment, Urgency"| Step2
-        Step2[<b>2. retrievePolicy()</b><br/><i>pgvector cosine similarity search</i>] --> |"Top-3 Policy Docs"| Step3
-        Step3[<b>3. lookUpOrder()</b><br/><i>PostgreSQL</i>] --> |"Order Details"| Step4
-        Step4[<b>4. decideAndDraft()</b><br/><i>Gemini / Rule-based</i>]
+        Step1["1. classifyIntent()\n(Gemini / Rule-based)"] --> |"Intent, Sentiment, Urgency"| Step2
+        Step2["2. retrievePolicy()\n(pgvector cosine similarity search)"] --> |"Top-3 Policy Docs"| Step3
+        Step3["3. lookUpOrder()\n(PostgreSQL)"] --> |"Order Details"| Step4
+        Step4["4. decideAndDraft()\n(Gemini / Rule-based)"]
     end
 
-    Step4 --> |"Action, Risk, Draft Response"| Decision{Confidence & Risk?}
+    Step4 --> |"Action, Risk, Draft Response"| Decision{"Confidence & Risk?"}
 
-    Decision -->|"Confidence ≥ 0.8 & LOW Risk"| AutoResolve([Auto-resolve & Send Response])
-    Decision -->|"HIGH Risk OR Low Confidence"| Pending[PENDING_HUMAN_REVIEW]
+    Decision -->|"Confidence ≥ 0.8 & LOW Risk"| AutoResolve(["Auto-resolve & Send Response"])
+    Decision -->|"HIGH Risk OR Low Confidence"| Pending["PENDING_HUMAN_REVIEW"]
 
-    Pending --> HITL([<b>HITL Dashboard</b><br/>Approve / Edit / Reject])
+    Pending --> HITL(["HITL Dashboard\n(Approve / Edit / Reject)"])
 
     style Msg fill:#f9f,stroke:#333,stroke-width:2px
     style AutoResolve fill:#bbf,stroke:#333,stroke-width:2px
