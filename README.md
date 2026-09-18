@@ -23,34 +23,29 @@ The system ships with a full **Human-in-the-Loop (HITL) dashboard** where human 
 
 ## Architecture Overview
 
-```
-Customer Message
-       |
-       v
-+--------------------------------------------------+
-|               Agent Pipeline                     |
-|                                                  |
-|  1. classifyIntent()   --> Intent, Sentiment,    |
-|     (Gemini / rule-based)    Urgency             |
-|                                                  |
-|  2. retrievePolicy()   --> Top-3 matching        |
-|     (pgvector cosine          policy docs        |
-|      similarity search)                          |
-|                                                  |
-|  3. lookUpOrder()      --> Customer order        |
-|     (PostgreSQL)              details            |
-|                                                  |
-|  4. decideAndDraft()   --> Action + Risk Level   |
-|     (Gemini / rule-based)    + Draft response   |
-+--------------------------------------------------+
-       |
-       +--- confidence >= 0.8 & LOW risk  --> Auto-resolve + send response
-       |
-       +--- HIGH risk / LOW confidence  --> PENDING_HUMAN_REVIEW
-                                                   |
-                                                   v
-                                          HITL Dashboard
-                                    (Approve / Edit / Reject)
+```mermaid
+flowchart TD
+    Msg([Customer Message]) --> Pipeline
+
+    subgraph Pipeline [Agent Pipeline]
+        direction TB
+        Step1[<b>1. classifyIntent()</b><br/><i>Gemini / Rule-based</i>] --> |"Intent, Sentiment, Urgency"| Step2
+        Step2[<b>2. retrievePolicy()</b><br/><i>pgvector cosine similarity search</i>] --> |"Top-3 Policy Docs"| Step3
+        Step3[<b>3. lookUpOrder()</b><br/><i>PostgreSQL</i>] --> |"Order Details"| Step4
+        Step4[<b>4. decideAndDraft()</b><br/><i>Gemini / Rule-based</i>]
+    end
+
+    Step4 --> |"Action, Risk, Draft Response"| Decision{Confidence & Risk?}
+
+    Decision -->|"Confidence ≥ 0.8 & LOW Risk"| AutoResolve([Auto-resolve & Send Response])
+    Decision -->|"HIGH Risk OR Low Confidence"| Pending[PENDING_HUMAN_REVIEW]
+
+    Pending --> HITL([<b>HITL Dashboard</b><br/>Approve / Edit / Reject])
+
+    style Msg fill:#f9f,stroke:#333,stroke-width:2px
+    style AutoResolve fill:#bbf,stroke:#333,stroke-width:2px
+    style HITL fill:#bfb,stroke:#333,stroke-width:2px
+    style Pipeline fill:#f4f4f4,stroke:#666,stroke-width:2px,stroke-dasharray: 5 5
 ```
 
 ### Agent Actions
